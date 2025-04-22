@@ -65,28 +65,45 @@ router.get('/harvest', async (req, res) => {
 
 router.post('/tractor', async (req, res) => {
     try {
-        if (config.harvester?.range) {
-            const { range, count } = parseRange(config.harvester.range);
-            for (const key in signers) {
-                if (range) {
-                    const [start, end] = range;
-                    for (let block = end; block >= start; block--) {
-                        Harvester.add(key, block, Date.now());
-                    }
-                    console.log(`Farmer ${key} checking blocks from ${start} to ${end} for harvest`);
-                } else if (count) {
-                    for (let i = 1; i <= count; i++) {
-                        Harvester.add(key, blockData.block - 1 - i, Date.now());
-                    }
-                    console.log(`Farmer ${key} checking blocks from ${blockData.block - 2} to ${blockData.block - count - 1} for harvest`);
-                }
-            }
-            await Harvester.flush(true);
-            return res.json({ result: true });
+        const customRange = req.body?.range;
+        let rangeToUse;
+
+        if (customRange) {
+            rangeToUse = customRange;
+        } else if (config.harvester?.range) {
+            rangeToUse = config.harvester.range;
+        } else {
+            return res.status(400).send('No harvest range specified in request body or config.');
         }
-        return res.status(400).send('Invalid config');
+
+        const { range, count } = parseRange(rangeToUse);
+
+        if (!range && !count) {
+            return res.status(400).send(`Invalid range format: ${rangeToUse}. Use format like '100-200' or '-5'`);
+        }
+
+
+        for (const key in signers) {
+            if (range) {
+                const [start, end] = range;
+                for (let block = end; block >= start; block--) {
+                    Harvester.add(key, block, Date.now());
+                }
+                console.log(`Farmer ${key} added blocks from ${start} to ${end} to harvest queue`);
+            } else if (count) {
+                for (let i = 0; i < count; i++) {
+                    Harvester.add(key, blockData.block - 1 - i, Date.now());
+                }
+                console.log(`Farmer ${key} checking blocks from ${blockData.block - 2} to ${blockData.block - count - 1} for harvest`);
+            }
+        }
+
+        await Harvester.flush(true);
+
+        return res.json({ result: true });
+
     } catch (error) {
-        console.error(error);
+        console.error("Error in /tractor endpoint:", error);
         return res.status(500).send(error.message);
     }
 });
